@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raw RGB10 to PNG Converter</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use Inter font -->
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+    </style>
+</head>
+<body class="p-4 sm:p-8 min-h-screen flex flex-col items-center justify-center">
+
+    <div id="app-container" class="w-full max-w-4xl bg-white shadow-2xl rounded-xl p-6 sm:p-10 border border-gray-100">
+        
+        <!-- Author Name moved to Top Left -->
+        <div class="text-left text-xs text-gray-400 mb-4 -mt-4">
+            Created by Shaigi, Tyndall  
+        </div>
+
+        <h1 class="text-3xl font-extrabold text-gray-900 mb-2 text-center">
+            <svg class="inline w-7 h-7 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            RGB10 Raw Data Converter
+        </h1>
+        <p class="text-center text-gray-500 mb-8">
+            Upload a raw byte stream, specify the dimensions, and convert the packed RGB10 data (3x10-bit channels in 32-bit words) to a standard 8-bit PNG image.
+        </p>
+
+        <!-- Configuration and Input Area -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            
+            <div>
+                <label for="fileInput" class="block text-sm font-medium text-gray-700 mb-1">1. Upload Raw File (.bin, .raw)</label>
+                <input type="file" id="fileInput" accept=".bin,.raw,*" class="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-full file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-indigo-50 file:text-indigo-700
+                    hover:file:bg-indigo-100 cursor-pointer" />
+            </div>
+
+            <div>
+                <label for="widthInput" class="block text-sm font-medium text-gray-700 mb-1">2. Image Width (Pixels)</label>
+                <input type="number" id="widthInput" value="320" placeholder="Width" min="1" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border" />
+            </div>
+
+            <div>
+                <label for="heightInput" class="block text-sm font-medium text-gray-700 mb-1">3. Image Height (Pixels)</label>
+                <input type="number" id="heightInput" value="320" placeholder="Height" min="1" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border" />
+            </div>
+        </div>
+
+        <button id="convertButton" 
+            class="w-full py-3 px-4 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 transition duration-150 ease-in-out disabled:bg-indigo-300" 
+            disabled>
+            Convert to PNG
+        </button>
+        
+        <!-- Status and Output Area -->
+        <div id="statusMessage" class="mt-4 text-center text-sm font-semibold text-gray-600">
+            Please upload a raw file to begin.
+        </div>
+        
+        <div id="outputArea" class="mt-8 hidden">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Conversion Result</h2>
+            
+            <div id="canvasContainer" class="flex justify-center items-center w-full bg-gray-100 rounded-lg p-4 overflow-auto">
+                <canvas id="imageCanvas" class="max-w-full border-4 border-gray-300 rounded-lg shadow-inner"></canvas>
+            </div>
+
+            <div class="mt-4 text-center">
+                <a id="downloadLink" href="#" download="converted_rgb10.png"
+                    class="inline-flex items-center py-2 px-6 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-150 ease-in-out">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Download PNG
+                </a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const widthInput = document.getElementById('widthInput');
+        const heightInput = document.getElementById('heightInput');
+        const convertButton = document.getElementById('convertButton');
+        const statusMessage = document.getElementById('statusMessage');
+        const canvas = document.getElementById('imageCanvas');
+        const outputArea = document.getElementById('outputArea');
+        const downloadLink = document.getElementById('downloadLink');
+        const ctx = canvas.getContext('2d');
+
+        let rawFile = null;
+
+        // --- Event Listeners ---
+        fileInput.addEventListener('change', (e) => {
+            rawFile = e.target.files[0];
+            convertButton.disabled = !rawFile;
+            statusMessage.textContent = rawFile ? `File ready: ${rawFile.name}. Click Convert.` : 'Please upload a raw file to begin.';
+        });
+
+        convertButton.addEventListener('click', () => {
+            if (!rawFile) {
+                alertUser("Please upload a file first.", "text-red-500");
+                return;
+            }
+            const width = parseInt(widthInput.value);
+            const height = parseInt(heightInput.value);
+
+            if (isNaN(width) || isNaN(height) || width <= 0 || height <= 0) {
+                alertUser("Please enter valid positive numbers for Width and Height.", "text-red-500");
+                return;
+            }
+
+            // Start conversion process
+            convertRawToPng(rawFile, width, height);
+        });
+
+        // --- Utility Functions ---
+
+        function alertUser(message, colorClass) {
+            statusMessage.className = `mt-4 text-center text-sm font-semibold ${colorClass || 'text-gray-600'}`;
+            statusMessage.textContent = message;
+        }
+
+        // --- Core Conversion Logic (JavaScript equivalent of Python script) ---
+
+        function unpackAndScale(arrayBuffer, width, height) {
+            const numPixels = width * height;
+            const expectedBytes = numPixels * 4; // 4 bytes per 3x10-bit packed pixel
+
+            if (arrayBuffer.byteLength !== expectedBytes) {
+                throw new Error(`Data size mismatch. Expected ${expectedBytes} bytes (W*H*4), but received ${arrayBuffer.byteLength} bytes.`);
+            }
+            
+            const view = new DataView(arrayBuffer);
+            // We use RGBA (4 bytes per pixel) for the canvas ImageData object
+            const imageDataArray = new Uint8ClampedArray(numPixels * 4); 
+
+            // Loop through each 32-bit word (which represents one pixel)
+            for (let i = 0; i < numPixels; i++) {
+                // Read 32-bit word, little-endian (true)
+                const word = view.getUint32(i * 4, true); 
+
+                // --- Unpack 10-bit channels (0x3FF is 1023 in decimal, or 10 bits set to 1) ---
+                // R is bits 0-9
+                const r10 = (word >> 0) & 0x3FF;
+                // G is bits 10-19
+                const g10 = (word >> 10) & 0x3FF;
+                // B is bits 20-29 (bits 30-31 are unused/reserved)
+                const b10 = (word >> 20) & 0x3FF;
+
+                // --- Scale 10-bit (0..1023) to 8-bit (0..255) ---
+                // Use floating point division for accurate scaling and round to nearest integer.
+                const r8 = Math.round((r10 / 1023.0) * 255);
+                const g8 = Math.round((g10 / 1023.0) * 255);
+                const b8 = Math.round((b10 / 1023.0) * 255);
+                
+                // --- Write to ImageData array (RGBA format) ---
+                const dataIndex = i * 4;
+                imageDataArray[dataIndex + 0] = r8;   // R
+                imageDataArray[dataIndex + 1] = g8;   // G
+                imageDataArray[dataIndex + 2] = b8;   // B
+                imageDataArray[dataIndex + 3] = 255;  // A (fully opaque)
+            }
+
+            return imageDataArray;
+        }
+
+        function convertRawToPng(file, width, height) {
+            alertUser("Processing data...", "text-blue-600");
+            
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                try {
+                    const arrayBuffer = e.target.result;
+                    const imageDataArray = unpackAndScale(arrayBuffer, width, height);
+
+                    // 1. Prepare Canvas
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    // 2. Create ImageData object
+                    const imageData = new ImageData(imageDataArray, width, height);
+                    
+                    // 3. Draw image data to canvas
+                    ctx.putImageData(imageData, 0, 0);
+
+                    // 4. Generate PNG download link
+                    const pngDataUrl = canvas.toDataURL('image/png');
+                    
+                    downloadLink.href = pngDataUrl;
+                    downloadLink.download = `${Path(file.name).stem}_converted.png`;
+
+                    // 5. Update UI
+                    outputArea.classList.remove('hidden');
+                    alertUser(`Conversion successful! Image rendered at ${width}x${height}.`, "text-green-600");
+
+                } catch (error) {
+                    outputArea.classList.add('hidden');
+                    alertUser(`Conversion Failed: ${error.message}`, "text-red-600");
+                    console.error("Conversion Error:", error);
+                }
+            };
+
+            reader.onerror = function() {
+                outputArea.classList.add('hidden');
+                alertUser("Error reading the file.", "text-red-500");
+            };
+
+            // Read the file as an ArrayBuffer
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Simple Path utility (to mimic Python's pathlib.Path.stem)
+        function Path(filename) {
+            return {
+                stem: filename.substring(0, filename.lastIndexOf('.')) || filename
+            };
+        }
+
+        // Initialize UI State
+        alertUser("Please upload a raw file to begin.", "text-gray-600");
+
+    </script>
+</body>
+</html>
